@@ -1,0 +1,2 @@
+class OBSWebSocketException(Exception):
+    pass
