@@ -5,8 +5,11 @@ import logging
 
 import libraries.config_manager as config_manager
 
-# TODO: stop hardcoding individual events; use below constant
-SUPPORTED_MESSAGES = ["show_preview", "show_match", "show_results"]
+SUPPORTED_MESSAGES = {
+    "show_preview": 'Match preview (SHOW_PREVIEW)',
+    "show_match": 'Show match (SHOW_MATCH)',
+    "show_results": 'Match results (SHOW_RESULTS)'
+}
 
 class EventConfigControls(ttk.Labelframe):
     def __init__(self, frame: ttk.Frame, state_enabled: tk.BooleanVar, state_scene_f1: tk.StringVar, state_scene_f2: tk.StringVar, event_text: str):
@@ -57,7 +60,7 @@ class FTCSceneHandler():
             return
 
         # if we magically have a 3-field event this is a problem
-        msg_type += '_f' + str(message['params']['field'])
+        msg_field = '_f' + str(message['params']['field'])
 
         try:
             current_scene = self.obs.client.get_current_program_scene().scene_name
@@ -65,77 +68,35 @@ class FTCSceneHandler():
         except Exception:
             raise OBSWebSocketException()
 
-        match msg_type:
-            case 'show_preview_f1':
-                if self.get_show_preview_enabled():
-                    self.logger.info(f"Switching to {self.get_show_preview_f1_name()}")
-                    self.obs.set_current_program_scene(self.get_show_preview_f1_name())
-            case 'show_preview_f2':
-                if self.get_show_preview_enabled():
-                    self.logger.info(f"Switching to {self.get_show_preview_f2_name()}")
-                    self.obs.client.set_current_program_scene(self.get_show_preview_f2_name())
-            case 'show_match_f1':
-                if self.get_show_match_enabled():
-                    self.logger.info(f"Switching to {self.get_show_match_f1_name()}")
-                    self.obs.client.set_current_program_scene(self.get_show_match_f1_name())
-            case 'show_match_f2':
-                if self.get_show_match_enabled():
-                    self.logger.info(f"Switching to {self.get_show_match_f2_name()}")
-                    self.obs.client.set_current_program_scene(self.get_show_match_f2_name())
-            case 'show_results_f1':
-                if self.get_show_results_enabled():
-                    self.logger.info(f"Switching to {self.get_show_results_f1_name()}")
-                    self.obs.client.set_current_program_scene(self.get_show_results_f1_name())
-            case 'show_results_f2':
-                if self.get_show_results_enabled():
-                    self.logger.info(f"Switching to {self.get_show_results_f2_name()}")
-                    self.obs.client.set_current_program_scene(self.get_show_results_f2_name())
-            case _:
-                print(f"Unsupported message type: {msg_type}")
+        if msg_type not in SUPPORTED_MESSAGES.keys():
+            self.logger.warning("Unsupported event: %s", msg_type)
+            return
+
+        msg_scene = self.get_event_generic(msg_type + msg_field + '_name')
+        self.obs.client.set_current_program_scene(msg_scene)
+        self.logger.info("Switched to scene \"%s\" on event %s", msg_scene, msg_type + msg_field)
 
     def set_default_config(self):
         if self.get_enabled() is None:
             self.set_enabled(True)
 
-        if self.get_show_preview_enabled() is None:
-            self.set_show_preview_enabled(True)
+        for event in SUPPORTED_MESSAGES:
+            if self.get_event_enabled(event) is None:
+                self.set_event_generic(event + '_enabled', True)
+            if self.get_event_generic(event + '_f1_name') is None:
+                self.set_event_generic(event + '_f1_name', event)
+            if self.get_event_generic(event + '_f2_name') is None:
+                self.set_event_generic(event + '_f2_name', event)
 
-        if self.get_show_preview_f1_name() is None:
-            self.set_show_preview_f1_name('show_preview_f1_name')
-
-        if self.get_show_preview_f2_name() is None:
-            self.set_show_preview_f2_name('show_preview_f2_name')
-
-        if self.get_show_match_enabled() is None:
-            self.set_show_match_enabled(True)
-
-        if self.get_show_match_f1_name() is None:
-            self.set_show_match_f1_name('show_match_f1_name')
-
-        if self.get_show_match_f2_name() is None:
-            self.set_show_match_f2_name('show_match_f2_name')
-
-        if self.get_show_results_enabled() is None:
-            self.set_show_results_enabled(True)
-
-        if self.get_show_results_f1_name() is None:
-            self.set_show_results_f1_name('show_results_f1_name')
-
-        if self.get_show_results_f2_name() is None:
-            self.set_show_results_f2_name('show_results_f2_name')
         self.config.save_config()
 
     def save_config(self):
         self.set_enabled(self.enabled.get())
-        self.set_show_preview_enabled(self.show_preview_enabled.get())
-        self.set_show_preview_f1_name(self.show_preview_f1_name.get())
-        self.set_show_preview_f2_name(self.show_preview_f2_name.get())
-        self.set_show_match_enabled(self.show_match_enabled.get())
-        self.set_show_match_f1_name(self.show_match_f1_name.get())
-        self.set_show_match_f2_name(self.show_match_f2_name.get())
-        self.set_show_results_enabled(self.show_results_enabled.get())
-        self.set_show_results_f1_name(self.show_results_f1_name.get())
-        self.set_show_results_f2_name(self.show_results_f2_name.get())
+        for event in SUPPORTED_MESSAGES:
+            self.set_event_generic(event + '_enabled', self.events[event]['enabled'].get())
+            self.set_event_generic(event + '_f1_name', self.events[event]['f1_name'].get())
+            self.set_event_generic(event + '_f2_name', self.events[event]['f2_name'].get())
+
         self.config.save_config()
 
     def set_up_tab(self):
@@ -145,20 +106,20 @@ class FTCSceneHandler():
         self.scene_switcher_cb = ttk.Checkbutton(self.frame, text='Enable scene switching', variable=self.enabled)
         self.scene_switcher_cb.pack(anchor='w', padx=5, pady=5)
 
-        self.show_preview_enabled = tk.BooleanVar(value=self.get_show_preview_enabled())
-        self.show_preview_f1_name = tk.StringVar(value=self.get_show_preview_f1_name())
-        self.show_preview_f2_name = tk.StringVar(value=self.get_show_preview_f2_name())
-        self.show_preview_controls = EventConfigControls(self.frame, self.show_preview_enabled, self.show_preview_f1_name, self.show_preview_f2_name, 'Match preview (SHOW_PREVIEW)')
-
-        self.show_match_enabled = tk.BooleanVar(value=self.get_show_match_enabled())
-        self.show_match_f1_name = tk.StringVar(value=self.get_show_match_f1_name())
-        self.show_match_f2_name = tk.StringVar(value=self.get_show_match_f2_name())
-        self.show_match_controls = EventConfigControls(self.frame, self.show_match_enabled, self.show_match_f1_name, self.show_match_f2_name, 'Show match (SHOW_MATCH)')
-
-        self.show_results_enabled = tk.BooleanVar(value=self.get_show_results_enabled())
-        self.show_results_f1_name = tk.StringVar(value=self.get_show_results_f1_name())
-        self.show_results_f2_name = tk.StringVar(value=self.get_show_results_f2_name())
-        self.show_results_controls = EventConfigControls(self.frame, self.show_results_enabled, self.show_results_f1_name, self.show_results_f2_name, 'Show results (SHOW_RESULTS)')
+        self.events = {}
+        for event, desc in SUPPORTED_MESSAGES.items():
+            self.events[event] = {
+                "enabled": tk.BooleanVar(value=self.get_event_enabled(event)),
+                "f1_name": tk.StringVar(value=self.get_event_generic(event + '_f1_name')),
+                "f2_name": tk.StringVar(value=self.get_event_generic(event + '_f2_name'))
+            }
+            self.events[event]['controls'] = EventConfigControls(
+                self.frame,
+                self.events[event]['enabled'],
+                self.events[event]['f1_name'],
+                self.events[event]['f2_name'],
+                desc
+            )
 
         self.save_btn = tk.Button(self.frame, command=self.save_config, text="Save")
         self.save_btn.pack(anchor='nw', padx=5, pady=5, expand=True)
@@ -179,65 +140,14 @@ class FTCSceneHandler():
             return None
         return self.str_to_bool(value)
 
-    def set_show_preview_enabled(self, value: bool):
-        self.config.set_value('scene', 'show_preview_enabled', value)
-
-    def get_show_preview_enabled(self):
-        value = self.config.get_value('scene', 'show_preview_enabled')
+    def get_event_enabled(self, event: str):
+        value = self.config.get_value('scene', event + '_enabled')
         if value is None:
             return None
         return self.str_to_bool(value)
 
-    def get_show_preview_f1_name(self):
-        return self.config.get_value('scene', 'show_preview_f1_name')
+    def get_event_generic(self, key: str):
+        return self.config.get_value('scene', key)
 
-    def set_show_preview_f1_name(self, value: str):
-        self.config.set_value('scene', 'show_preview_f1_name', value)
-
-    def get_show_preview_f2_name(self):
-        return self.config.get_value('scene', 'show_preview_f2_name')
-
-    def set_show_preview_f2_name(self, value: str):
-        self.config.set_value('scene', 'show_preview_f2_name', value)
-
-    def set_show_match_enabled(self, value: bool):
-        self.config.set_value('scene', 'show_match_enabled', value)
-
-    def get_show_match_enabled(self):
-        value = self.config.get_value('scene', 'show_match_enabled')
-        if value is None:
-            return None
-        return self.str_to_bool(value)
-
-    def get_show_match_f1_name(self):
-        return self.config.get_value('scene', 'show_match_f1_name')
-
-    def set_show_match_f1_name(self, value: str):
-        self.config.set_value('scene', 'show_match_f1_name', value)
-
-    def get_show_match_f2_name(self):
-        return self.config.get_value('scene', 'show_match_f2_name')
-
-    def set_show_match_f2_name(self, value: str):
-        self.config.set_value('scene', 'show_match_f2_name', value)
-
-    def set_show_results_enabled(self, value: bool):
-        self.config.set_value('scene', 'show_results_enabled', value)
-
-    def get_show_results_enabled(self):
-        value = self.config.get_value('scene', 'show_results_enabled')
-        if value is None:
-            return None
-        return self.str_to_bool(value)
-
-    def get_show_results_f1_name(self):
-        return self.config.get_value('scene', 'show_results_f1_name')
-
-    def set_show_results_f1_name(self, value: str):
-        self.config.set_value('scene', 'show_results_f1_name', value)
-
-    def get_show_results_f2_name(self):
-        return self.config.get_value('scene', 'show_results_f2_name')
-
-    def set_show_results_f2_name(self, value: str):
-        self.config.set_value('scene', 'show_results_f2_name', value)
+    def set_event_generic(self, key, value):
+        self.config.set_value('scene', key, value)
