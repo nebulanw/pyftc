@@ -7,7 +7,9 @@ import libraries.config_manager as config_manager
 
 SUPPORTED_MESSAGES = {
     "show_preview": 'Match preview (SHOW_PREVIEW)',
+    "show_random": 'Randomization (SHOW_RANDOM)',
     "show_match": 'Show match (SHOW_MATCH)',
+    "start_match": 'Start match (START_MATCH)', # added as a last resort for funny edgecases
     "show_results": 'Match results (SHOW_RESULTS)'
 }
 
@@ -42,7 +44,9 @@ class FTCSceneHandler():
         self.notebook = n
         self.obs = obs
         self.logger = logger
+        self.valid_scenes = []
         self.set_default_config()
+        self.valid_scenes = self.enumerate_all_valid_scenes()
         self.set_up_tab()
 
 
@@ -64,17 +68,33 @@ class FTCSceneHandler():
 
         try:
             current_scene = self.obs.client.get_current_program_scene().scene_name
-            print(current_scene)
         except Exception:
+            # self.logger.info("unexpected error")
             raise OBSWebSocketException()
 
         if msg_type not in SUPPORTED_MESSAGES.keys():
-            self.logger.warning("Unsupported event: %s", msg_type)
+            self.logger.debug("Unsupported event: %s", msg_type)
             return
 
+
         msg_scene = self.get_event_generic(msg_type + msg_field + '_name')
+        if current_scene not in self.valid_scenes:
+            self.logger.debug("Unrecognized scene: %s", current_scene)
+            return
+        if current_scene == msg_scene:
+            self.logger.debug("Not transitioning as new scene is the same")
+            return
         self.obs.client.set_current_program_scene(msg_scene)
         self.logger.info("Switched to scene \"%s\" on event %s", msg_scene, msg_type + msg_field)
+
+    def enumerate_all_valid_scenes(self):
+        scenes = []
+        for event in SUPPORTED_MESSAGES:
+            if not self.get_event_enabled(event):
+                continue
+            scenes.append(self.get_event_generic(event + '_f1_name'))
+            scenes.append(self.get_event_generic(event + '_f2_name'))
+        return scenes
 
     def set_default_config(self):
         if self.get_enabled() is None:
@@ -97,6 +117,7 @@ class FTCSceneHandler():
             self.set_event_generic(event + '_f1_name', self.events[event]['f1_name'].get())
             self.set_event_generic(event + '_f2_name', self.events[event]['f2_name'].get())
 
+        self.valid_scenes = self.enumerate_all_valid_scenes()
         self.config.save_config()
 
     def set_up_tab(self):
@@ -105,6 +126,8 @@ class FTCSceneHandler():
         self.enabled = tk.BooleanVar(value=self.get_enabled())
         self.scene_switcher_cb = ttk.Checkbutton(self.frame, text='Enable scene switching', variable=self.enabled)
         self.scene_switcher_cb.pack(anchor='w', padx=5, pady=5)
+
+        # self.scene_override_cb = ttk.Checkbutton(self.frame, text='Allow overriding unrecognized scenes')
 
         self.events = {}
         for event, desc in SUPPORTED_MESSAGES.items():
@@ -121,7 +144,7 @@ class FTCSceneHandler():
                 desc
             )
 
-        self.save_btn = tk.Button(self.frame, command=self.save_config, text="Save")
+        self.save_btn = ttk.Button(self.frame, command=self.save_config, text="Save")
         self.save_btn.pack(anchor='nw', padx=5, pady=5, expand=True)
 
         self.notebook.add(self.frame, text='Scenes')
