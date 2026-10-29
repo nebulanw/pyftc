@@ -65,6 +65,10 @@ class FTCSceneHandler():
 
         # if we magically have a 3-field event this is a problem
         msg_field = '_f' + str(message['params']['field'])
+        # NOTE: this was a temporary fix because Austin F said that finals report Field 0, but it doesn't?
+        if message['params']['field'] == 0 or message['params']['field'] == '0':
+            msg_field = '_f1'
+
 
         try:
             current_scene = self.obs.client.get_current_program_scene().scene_name

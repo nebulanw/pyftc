@@ -49,7 +49,7 @@ class FTCChapterHandler():
             if self.clipper_thread is not None and self.clipper_thread.is_alive():
                 self.stop_flag.set()
                 self.clipper_thread.join()
-            self.clipper_thread = threading.Thread(target=self.run_clipper_thread, kwargs={'match_name': msg_match_name, 'stop_event': self.stop_flag})
+            self.clipper_thread = threading.Thread(target=self.run_clipper_thread, kwargs={'match_name': msg_match_name, 'stop_event': self.stop_flag, 'timeout': 173})
             self.clipper_thread.daemon = True
             self.stop_flag.clear()
             self.clipper_thread.start()
@@ -62,12 +62,18 @@ class FTCChapterHandler():
 
         if msg_type == "show_results":
             if self.ss_thread is not None and self.ss_thread.is_alive():
+                self.stop_flag.set()
+                self.clipper_thread.join()
                 self.timer_event.set()
                 self.ss_thread.join()
             self.ss_thread = threading.Thread(target=self.run_res_ss_thread, kwargs={'match_name': msg_match_name, 'timer_event': self.timer_event})
             self.ss_thread.daemon = True
             self.timer_event.clear()
             self.ss_thread.start()
+            self.clipper_thread = threading.Thread(target=self.run_clipper_thread, kwargs={'match_name': msg_match_name, 'stop_event': self.stop_flag, 'timeout': 30})
+            self.clipper_thread.daemon = True
+            self.stop_flag.clear()
+            self.clipper_thread.start()
 
         if msg_type == "show_preview":
             if self.ss_thread is not None and self.ss_thread.is_alive():
@@ -78,14 +84,14 @@ class FTCChapterHandler():
             self.timer_event.clear()
             self.ss_thread.start()
 
-    def run_clipper_thread(self, match_name: str, stop_event: threading.Event):
+    def run_clipper_thread(self, match_name: str, stop_event: threading.Event, timeout: int):
         if not self.obs.client.get_replay_buffer_status().output_active:
             self.logger.warning("Skipping clipper because replay buffer is not active")
             return
         self.logger.info("Started clipper thread")
         # time.sleep(173) # (8s offset) + 15 pre + 2:38 (158s) match + 15 post = 196 buffer
         # NOTE: on T14p the buffer time is ~192 seconds
-        stop_event.wait(timeout=173)
+        stop_event.wait(timeout=timeout) # 173
         if stop_event.is_set():
             self.logger.info("Stopping clipper thread for %s early", match_name)
             return
