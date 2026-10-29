@@ -15,7 +15,7 @@ from libraries.url_frame import URLFrame
 
 class OBSConnectionContainer():
     def __init__(self):
-        self.client = None
+        self.client: obs.ReqClient = None
 
 
 class PyFTC(tk.Tk):

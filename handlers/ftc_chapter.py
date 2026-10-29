@@ -8,6 +8,7 @@ import os
 
 import libraries.config_manager as config_manager
 from libraries.random_str import randomword
+from main import OBSConnectionContainer
 
 SUPPORTED_MESSAGES = {
     "show_preview": 'Match preview (SHOW_PREVIEW)',
@@ -16,7 +17,7 @@ SUPPORTED_MESSAGES = {
 }
 
 class FTCChapterHandler():
-    def __init__(self, config: config_manager.ConfigurationManager, n: ttk.Notebook, obs, logger: logging.Logger):
+    def __init__(self, config: config_manager.ConfigurationManager, n: ttk.Notebook, obs: OBSConnectionContainer, logger: logging.Logger):
         self.config = config
         self.notebook = n
         self.obs = obs
@@ -49,7 +50,7 @@ class FTCChapterHandler():
             if self.clipper_thread is not None and self.clipper_thread.is_alive():
                 self.stop_flag.set()
                 self.clipper_thread.join()
-            self.clipper_thread = threading.Thread(target=self.run_clipper_thread, kwargs={'match_name': msg_match_name, 'stop_event': self.stop_flag, 'timeout': 173})
+            self.clipper_thread = threading.Thread(target=self.run_clipper_thread, kwargs={'match_name': msg_match_name, 'stop_event': self.stop_flag, 'timeout': 173, 'duration': 188})
             self.clipper_thread.daemon = True
             self.stop_flag.clear()
             self.clipper_thread.start()
@@ -70,7 +71,7 @@ class FTCChapterHandler():
             self.ss_thread.daemon = True
             self.timer_event.clear()
             self.ss_thread.start()
-            self.clipper_thread = threading.Thread(target=self.run_clipper_thread, kwargs={'match_name': msg_match_name, 'stop_event': self.stop_flag, 'timeout': 30})
+            self.clipper_thread = threading.Thread(target=self.run_clipper_thread, kwargs={'match_name': msg_match_name, 'stop_event': self.stop_flag, 'timeout': 30, 'duration': 45})
             self.clipper_thread.daemon = True
             self.stop_flag.clear()
             self.clipper_thread.start()
@@ -84,14 +85,17 @@ class FTCChapterHandler():
             self.timer_event.clear()
             self.ss_thread.start()
 
-    def run_clipper_thread(self, match_name: str, stop_event: threading.Event, timeout: int):
+    def run_clipper_thread(self, match_name: str, stop_event: threading.Event, timeout: int, duration: int):
         if not self.obs.client.get_replay_buffer_status().output_active:
             self.logger.warning("Skipping clipper because replay buffer is not active")
             return
         self.logger.info("Started clipper thread")
         # time.sleep(173) # (8s offset) + 15 pre + 2:38 (158s) match + 15 post = 196 buffer
-        # NOTE: on T14p the buffer time is ~192 seconds
-        stop_event.wait(timeout=timeout) # 173
+        # 30 sec AUTO + 8 sec wait + 120 sec TELEOP = 158 sec match
+        # 15s pre + 158s + 15s post = 188s clip
+        # 158s + 15s post = 173s wait
+        stop_event.wait(timeout=timeout)
+        
         if stop_event.is_set():
             self.logger.info("Stopping clipper thread for %s early", match_name)
             return
@@ -99,7 +103,17 @@ class FTCChapterHandler():
         if not self.obs.client.get_replay_buffer_status().output_active:
             self.logger.warning("Skipping clipper because replay buffer is not active")
             return
-        self.obs.client.save_replay_buffer()
+        # self.obs.client.save_replay_buffer()
+        self.logger.info("Saving replay...")
+        self.obs.client.send(
+            "CallVendorRequest",
+            data={
+                "vendorName": "replay-buffer-pro",
+                "requestType": "SaveClip",
+                "requestData": {"duration": str(duration) + "s"}
+            }
+        )
+
         self.logger.info("Saved replay for %s", match_name)
         # This doesn't work consistently
         # replay_fname = self.obs.client.send("GetLastReplayBufferReplay", raw=True)
